@@ -68,6 +68,18 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
 .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--ember); }
 .row output { font-variant-numeric: tabular-nums; color: var(--brass); }
 .row select, .row input[type=checkbox] { accent-color: var(--ember); font-size: 16px; }
+.steps { list-style: none; display: grid; gap: 12px; width: 100%; max-width: 360px; text-align: left; }
+.steps li { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; background: rgba(243,217,177,.08); border-radius: 6px; padding: 10px 12px; }
+.steps b { font-family: var(--display); font-weight: 400; font-size: 26px; color: var(--brass); text-align: center; }
+.steps span { font-size: 18px; line-height: 1.25; }
+.steps small { display: block; font-size: 15px; opacity: .7; }
+#challengePic { height: min(38vh, 300px); filter: drop-shadow(0 8px 12px rgba(0,0,0,.55)); }
+#runBtn {
+  position: fixed; left: 10px; top: max(10px, env(safe-area-inset-top)); z-index: 5;
+  width: 56px; height: 56px; padding: 0; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f07a4c, #b8321f); color: #fff3d6;
+  font-family: var(--display); font-size: 15px; box-shadow: 0 3px 0 #6e1d12, inset 0 0 0 3px rgba(255,243,214,.35);
+}
 #debug { position: fixed; left: 8px; bottom: max(8px, env(safe-area-inset-bottom)); font: 12px/1.3 ui-monospace, Menlo, monospace; color: var(--dust); opacity: .6; pointer-events: none; white-space: pre; z-index: 4; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style>
@@ -75,6 +87,7 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
 <body>
 <canvas id="c"></canvas>
 <button id="gear" aria-label="Ayarlar">⚙</button>
+<button id="runBtn" hidden>KAÇ</button>
 <div id="debug" hidden></div>
 
 <section class="screen" id="menu">
@@ -83,7 +96,27 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
   <p>Telefonun tabancan. Kılıfa koy, işareti bekle, çek ve vur.</p>
   <p class="small">Ekran döndürmeyi kilitle ve sesi aç. Kılıftayken ekranı göremezsin, sesleri dinle.</p>
   <button id="startBtn">Başla</button>
+  <button class="ghost" id="howBtn">Nasıl oynanır</button>
   <p class="small" id="deviceNote"></p>
+</section>
+
+<section class="screen" id="tutorial" hidden>
+  <h2>Kılıfa koyma</h2>
+  <ol class="steps">
+    <li><b>1</b><span>Telefonu dik tut, ekran sana baksın.<small>Silah elinde gibi.</small></span></li>
+    <li><b>2</b><span>Kalçanın yanına indir, üst kenarı yere baksın.<small>Tık tık sesini duyunca kılıftasın.</small></span></li>
+    <li><b>3</b><span>Kıpırdama, çanı bekle. 10–15 saniye sürer.<small>Erken kaldırırsan ceza yersin.</small></span></li>
+    <li><b>4</b><span>Çan çalınca hızla kaldır, çevirerek nişan al, ekrana dokun.<small>Mermi bitince yana yatır, geri getir.</small></span></li>
+  </ol>
+  <button id="tutDone">Anladım</button>
+</section>
+
+<section class="screen" id="challenge" hidden>
+  <img id="challengePic" src="assets/rakip-durus.webp" alt="">
+  <div class="label">Kanun kaçağı · ödül 250 altın</div>
+  <h2>Kızıl Sakal</h2>
+  <p>Seni sokağa çağırıyor. Suratını beğenmemiş.</p>
+  <button id="acceptBtn">Düelloya çık</button>
 </section>
 
 <section class="screen" id="holster" hidden>
@@ -139,7 +172,7 @@ const BOT = {
 // ─── DOM ─────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
-const screens = ['menu', 'holster', 'result', 'settings'];
+const screens = ['menu', 'tutorial', 'challenge', 'holster', 'result', 'settings'];
 const show = name => screens.forEach(s => $(s).hidden = s !== name);
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -309,6 +342,7 @@ function newBot() {
 }
 
 function startRound() {
+  G.ran = false; $('runBtn').hidden = false;
   G.hp = 100; G.bullets = 6; G.reloading = 0; G.shots = 0; G.hits = 0; G.heads = 0; G.fouls = 0;
   G.bot = newBot(); G.fx = []; G.drawnAt = 0; G.drawAt = 0;
   toHolster();
@@ -347,14 +381,14 @@ function playerDraws() {
   sfxClick(0.6);
 }
 function endRound(win) {
-  G.phase = 'result'; setWind(0);
-  $('resultLabel').textContent = win ? 'Düello bitti' : 'Yere serildin';
-  $('resultTitle').textContent = win ? 'Kazandın' : 'Kaybettin';
+  G.phase = 'result'; setWind(0); $('runBtn').hidden = true;
+  $('resultLabel').textContent = win ? 'Düello bitti' : G.ran ? 'Düello bitti' : 'Yere serildin';
+  $('resultTitle').textContent = win ? 'Kazandın' : G.ran ? 'Kaçtın' : 'Kaybettin';
   const drawMs = G.drawnAt ? Math.round(G.drawnAt - G.drawAt) : null;
   const acc = G.shots ? Math.round(100 * G.hits / G.shots) : 0;
   const rows = [
     ['Çekme süren', drawMs != null ? drawMs + ' ms' : '—'],
-    ['Rakibin çekmesi', Math.round(G.bot.reactAt - G.drawAt) + ' ms'],
+    ['Rakibin çekmesi', G.drawAt ? Math.round(G.bot.reactAt - G.drawAt) + ' ms' : '—'],
     ['İsabet', `${G.hits}/${G.shots} (%${acc})`],
     ['Kafadan', String(G.heads)],
     ['Kalan can', String(Math.max(0, Math.round(G.hp)))],
@@ -366,7 +400,7 @@ function endRound(win) {
 
 // ─── Shooting ────────────────────────────────────────────────────────────────
 function botBox() {
-  const fy = H * 0.64, bh = Math.min(H * 0.27, W * 0.62), x = W / 2;
+  const fy = H * 0.63, bh = Math.min(H * 0.17, W * 0.4), x = W / 2;
   return { x, fy, bh, headY: fy - bh * 0.84, headR: bh * 0.06,
     torso: [x - bh * 0.13, fy - bh * 0.77, bh * 0.26, bh * 0.3],
     legs: [x - bh * 0.13, fy - bh * 0.47, bh * 0.26, bh * 0.45] };
@@ -551,9 +585,8 @@ function drawBot() {
     ctx.beginPath(); ctx.arc(x - w * 0.18, fy - h * 0.79, bh * .07 * (1 + b.flash), 0, 7); ctx.fill();
   }
   if (!b.dead) {
-    const hw = bh * .5, hx = x - hw / 2, hy = fy - h - 14;
-    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(hx, hy, hw, 7);
-    ctx.fillStyle = '#e3b54a'; ctx.fillRect(hx, hy, hw * Math.max(0, b.hp) / 100, 7);
+    const hw = Math.max(90, bh * .9), hh = 14, hx = x - hw / 2, hy = fy - h - hh - 10;
+    hpBar(hx, hy, hw, hh, b.hp);
   }
   if (S.debug) { // hit zones, for tuning
     ctx.strokeStyle = 'rgba(0,255,120,.8)'; ctx.lineWidth = 1.5;
@@ -663,35 +696,47 @@ function drawFx() {
   }
 }
 
+function hpBar(x, y, w, h, hp) {
+  const k = Math.max(0, Math.min(100, hp)) / 100;
+  ctx.fillStyle = 'rgba(30,18,10,.65)'; roundRect(x - 2, y - 2, w + 4, h + 4, (h + 4) / 2); ctx.fill();
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, k > .35 ? '#9be36a' : '#f07a4c'); g.addColorStop(1, k > .35 ? '#3f9a2c' : '#b8321f');
+  ctx.fillStyle = g; if (k > 0) { roundRect(x, y, Math.max(h, w * k), h, h / 2); ctx.fill(); }
+  ctx.font = `700 ${Math.round(h * 0.95)}px "Barlow Condensed", sans-serif`; ctx.fillStyle = '#fff8e6';
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(String(Math.max(0, Math.round(hp))), x + 8, y + h / 2 + 1);
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
 function drawHud() {
   if (G.phase !== 'duel' && G.phase !== 'result') return;
-  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
-  const pad = 16, top = Math.max(16, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 16) + 44;
-  // player health
-  const w = Math.min(220, W * 0.5);
-  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(pad, top, w, 12);
-  ctx.fillStyle = G.hp > 35 ? '#e3b54a' : '#d93a2b'; ctx.fillRect(pad, top, w * Math.max(0, G.hp) / 100, 12);
-  ctx.font = '600 15px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#f3d9b1'; ctx.textBaseline = 'top';
-  ctx.fillText('CANIN', pad, top + 16);
-  // bullets
-  const by = H - Math.max(24, 24) - 30;
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+  // line the bar up with the RUN button, which already sits below any notch
+  const rb = $('runBtn').getBoundingClientRect(), top = (rb.height ? rb.top : 10) + 8;
+  const left = 76, right = W - 64;
+  hpBar(left, top, right - left, 18, G.hp);
+  // cartridges under the health bar
   for (let i = 0; i < 6; i++) {
-    ctx.fillStyle = i < G.bullets ? '#e3b54a' : 'rgba(243,217,177,.2)';
-    ctx.fillRect(pad + i * 14, by, 8, 22);
+    const cx = left + i * 15, cy = top + 28, on = i < G.bullets;
+    ctx.fillStyle = on ? '#d9a441' : 'rgba(243,217,177,.22)';
+    roundRect(cx, cy + 6, 9, 18, 2); ctx.fill();
+    ctx.fillStyle = on ? '#b87333' : 'rgba(243,217,177,.15)';
+    ctx.beginPath(); ctx.ellipse(cx + 4.5, cy + 7, 4.5, 6, 0, Math.PI, 0); ctx.fill();
+  }
+  ctx.textBaseline = 'top';
+  if (G.drawnAt) {
+    ctx.font = '700 17px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#fff3d6'; ctx.textAlign = 'right';
+    ctx.fillText(`çekiş ${Math.round(G.drawnAt - G.drawAt)} ms`, right, top + 30);
   }
   if (G.drawnAt && G.bullets === 0 && !G.reloading) {
-    ctx.font = '400 22px Rye, serif'; ctx.fillStyle = '#f3d9b1'; ctx.textAlign = 'center';
+    ctx.font = '400 22px Rye, serif'; ctx.fillStyle = '#fff3d6'; ctx.textAlign = 'center';
     ctx.fillText(desktop ? 'BOŞ · R ile doldur' : 'BOŞ · yana yatır, geri getir', W / 2, H * 0.72);
-    ctx.textAlign = 'start';
   }
-  // draw time
-  if (G.drawnAt) {
-    ctx.font = '700 18px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#f3d9b1'; ctx.textAlign = 'right';
-    ctx.fillText(`çekiş ${Math.round(G.drawnAt - G.drawAt)} ms`, W - pad, top + 16);
-    ctx.textAlign = 'start';
-  }
+  ctx.textAlign = 'start';
   // DRAW cue
   const since = now() - G.drawAt;
+  ctx.textBaseline = 'alphabetic';
   if (G.phase === 'duel' && since < 700) {
     ctx.save(); ctx.globalAlpha = 1 - since / 700;
     ctx.font = `400 ${Math.min(W * 0.28, 140)}px Rye, serif`; ctx.fillStyle = '#fff3d6'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -720,9 +765,20 @@ $('startBtn').addEventListener('click', async () => {
   const ok = await enableSensors();
   desktop = !ok;
   try { await navigator.wakeLock?.request('screen'); } catch (e) {}
-  startRound();
+  let seen = false; try { seen = localStorage.getItem('duel.tutorial') === '1'; } catch (e) {}
+  seen ? toChallenge() : show('tutorial');
 });
-$('againBtn').addEventListener('click', () => setTimeout(startRound, 150));
+$('howBtn').addEventListener('click', () => show('tutorial'));
+$('tutDone').addEventListener('click', () => {
+  try { localStorage.setItem('duel.tutorial', '1'); } catch (e) {}
+  AC ? toChallenge() : show('menu'); // opened from the menu before Start
+});
+function toChallenge() { G.phase = 'challenge'; $('runBtn').hidden = true; show('challenge'); }
+$('acceptBtn').addEventListener('click', () => setTimeout(startRound, 150));
+$('againBtn').addEventListener('click', toChallenge);
+$('runBtn').addEventListener('click', () => {
+  if (['holster', 'wait', 'duel'].includes(G.phase)) { G.ran = true; endRound(false); show('result'); }
+});
 
 function bindSettings() {
   const num = (id, key, fmt) => {
