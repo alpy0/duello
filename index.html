@@ -81,7 +81,7 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
   <div class="label">Deneme sürümü</div>
   <h1>Öğlen<br>Düellosu</h1>
   <p>Telefonun tabancan. Kılıfa koy, işareti bekle, çek ve vur.</p>
-  <p class="small">Telefonu dik, ekran sana bakacak şekilde tutarken başla. Ekran döndürmeyi kilitle.</p>
+  <p class="small">Ekran döndürmeyi kilitle ve sesi aç. Kılıftayken ekranı göremezsin, sesleri dinle.</p>
   <button id="startBtn">Başla</button>
   <p class="small" id="deviceNote"></p>
 </section>
@@ -106,7 +106,9 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
 <section class="screen" id="settings" hidden>
   <h2>Ayarlar</h2>
   <p class="small">Hissi burada ayarla. Değerler bu telefonda saklanır.</p>
-  <label class="row" for="s_draw">Çekme eşiği <output id="o_draw"></output>
+  <label class="row" for="s_holster">Kılıf eşiği (düşük = daha kolay) <output id="o_holster"></output>
+    <input type="range" id="s_holster" min="0.4" max="0.95" step="0.05"></label>
+  <label class="row" for="s_draw">Çekme eşiği (düşük = daha erken çıkar) <output id="o_draw"></output>
     <input type="range" id="s_draw" min="0.2" max="0.95" step="0.05"></label>
   <label class="row" for="s_sens">Nişan hassasiyeti <output id="o_sens"></output>
     <input type="range" id="s_sens" min="0.3" max="3" step="0.1"></label>
@@ -127,7 +129,7 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
 'use strict';
 
 // ─── Settings ────────────────────────────────────────────────────────────────
-const DEFAULTS = { draw: 0.6, sens: 1.2, sway: 1, wait: 'long', bot: 'normal', invx: false, invy: false, debug: false };
+const DEFAULTS = { holster: 0.7, draw: 0.6, sens: 1.2, sway: 1, wait: 'long', bot: 'normal', invx: false, invy: false, debug: false };
 let S = { ...DEFAULTS };
 try { Object.assign(S, JSON.parse(localStorage.getItem('duel.settings') || '{}')); } catch (e) {}
 const saveSettings = () => { try { localStorage.setItem('duel.settings', JSON.stringify(S)); } catch (e) {} };
@@ -211,30 +213,44 @@ function setWind(v) { if (windGain) windGain.gain.setTargetAtTime(v, AC.currentT
 const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
 
 // ─── Sensors ─────────────────────────────────────────────────────────────────
-// Gravity direction is compared with the one captured when the player pressed
-// Start (phone held upright). That sidesteps the iOS/Android sign differences.
-const sensor = { ok: false, g: [0, 0, 0], g0: null, up: 1, roll: 0, rate: [0, 0], last: 0 };
+// Pose comes from deviceorientation beta: the tilt of the phone's long axis.
+// sin(beta) is how much the top edge points up (+1) or down (-1), whatever way
+// the screen faces, and it reads the same on iPhone and Android.
+const sensor = { ok: false, topUp: 1, roll: 0, rate: [0, 0], spin: 0, holstered: false, holsterSince: 0 };
+function onOrient(e) {
+  if (e.beta == null) return;
+  const b = e.beta * Math.PI / 180;
+  sensor.topUp += (Math.sin(b) - sensor.topUp) * 0.5;
+  sensor.ok = true;
+}
 function onMotion(e) {
-  const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
-  const g = [a.x, a.y, a.z], m = Math.hypot(...g) || 1;
-  // light low-pass so a jerk of the wrist does not read as a pose change
-  for (let i = 0; i < 3; i++) sensor.g[i] += (g[i] / m - sensor.g[i]) * 0.35;
-  if (!sensor.g0) sensor.g0 = [...sensor.g];
-  const g0 = sensor.g0;
-  sensor.up = sensor.g[0] * g0[0] + sensor.g[1] * g0[1] + sensor.g[2] * g0[2];
-  sensor.roll = Math.abs(sensor.g[0]);
-  const r = e.rotationRate;
-  if (r) sensor.rate = [r.gamma || 0, r.beta || 0]; // deg/s: turn left-right, tilt up-down
-  sensor.ok = true; sensor.last = performance.now();
+  // Sideways tilt from gravity, not from gamma: gamma is unreliable while the
+  // phone is held upright (Euler angles degenerate near beta = 90).
+  const a = e.accelerationIncludingGravity;
+  if (a && a.x != null) sensor.roll = Math.abs(a.x) / (Math.hypot(a.x, a.y, a.z) || 1);
+  const r = e.rotationRate; if (!r) return;
+  sensor.rate = [r.gamma || 0, r.beta || 0]; // deg/s: turn left-right, tilt up-down
+  sensor.spin = Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0);
+}
+// Holster needs the top pointing down past the threshold for 400 ms while the
+// phone is fairly still; leaving it needs a clearly bigger move (hysteresis).
+function updateHolster(t) {
+  const down = -sensor.topUp;
+  if (!sensor.holstered) {
+    if (down >= S.holster && sensor.spin < 150) {
+      if (!sensor.holsterSince) sensor.holsterSince = t;
+      if (t - sensor.holsterSince >= 400) sensor.holstered = true;
+    } else sensor.holsterSince = 0;
+  } else if (down < S.holster - 0.3) { sensor.holstered = false; sensor.holsterSince = 0; }
 }
 async function enableSensors() {
   try {
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-      const res = await DeviceMotionEvent.requestPermission();
-      if (res !== 'granted') return false;
+    for (const E of [window.DeviceMotionEvent, window.DeviceOrientationEvent]) {
+      if (E && typeof E.requestPermission === 'function' && await E.requestPermission() !== 'granted') return false;
     }
   } catch (e) { return false; }
   window.addEventListener('devicemotion', onMotion);
+  window.addEventListener('deviceorientation', onOrient);
   // wait briefly for the first reading; desktops never send one
   await new Promise(r => setTimeout(r, 600));
   return sensor.ok;
@@ -250,8 +266,8 @@ window.addEventListener('keyup', e => { if (e.code === 'Space') { kb.space = fal
 window.addEventListener('mousemove', e => { kb.mouse = [e.clientX, e.clientY]; kb.hasMouse = true; });
 
 let desktop = false;
-const isHolstered = () => desktop ? kb.space : sensor.up < -S.draw;
-const isDrawn     = () => desktop ? !kb.space : sensor.up > S.draw;
+const isHolstered = () => desktop ? kb.space : sensor.holstered;
+const isDrawn     = () => desktop ? !kb.space : sensor.topUp > S.draw;
 
 // ─── Game state ──────────────────────────────────────────────────────────────
 const G = {
@@ -278,7 +294,7 @@ function toHolster(msg) {
   $('holsterTitle').textContent = 'Kılıfa koy';
   $('holsterText').textContent = desktop
     ? 'Boşluk tuşuna basılı tut. Tabanca kılıfta.'
-    : 'Telefonu kalçanın yanına indir. Üst kenarı yere, ekranı bacağına baksın.';
+    : 'Telefonu kalçanın yanına sarkıt, üst kenarı yere baksın. Tık sesini duyunca kılıftasın.';
   $('holsterHint').textContent = msg || '';
   show('holster'); setWind(0.05);
 }
@@ -290,10 +306,11 @@ function toWait() {
   $('holsterText').textContent = 'Kıpırdama. İşareti bekle.';
   $('holsterHint').textContent = desktop ? 'Çan çalınca boşluğu bırak.' : 'Çan çalınca telefonu kaldır.';
   setWind(0.12); buzz(40);
+  sfxClick(0.7); setTimeout(() => sfxClick(1.2), 140); // hammer cocks: you are holstered
 }
 function foul() {
   G.fouls++; G.hp = Math.max(1, G.hp - 25); sfxThump(0.7); buzz([80, 60, 80]);
-  toHolster('Erken çektin. Cezası −25 can. Yeniden kılıfa koy.');
+  toHolster('Çan çalmadan kıpırdadın. Cezası −25 can. Yeniden kılıfa koy.');
 }
 function toDraw() {
   G.phase = 'duel'; G.drawAt = now(); G.drawnAt = 0;
@@ -378,13 +395,11 @@ function update() {
   G.hurt = Math.max(0, G.hurt - dt * 2.5);
   G.kick = Math.max(0, G.kick - dt * H * 0.5);
 
+  if (!desktop) updateHolster(t);
   if (G.phase === 'holster') {
-    if (isHolstered()) {
-      if (!G.holsterSince) G.holsterSince = t;
-      if (t - G.holsterSince > 600) toWait();
-    } else G.holsterSince = 0;
+    if (isHolstered()) toWait();
   } else if (G.phase === 'wait') {
-    if (!isHolstered() && isDrawn()) foul();
+    if (!isHolstered()) foul();
     else if (t >= G.waitUntil) toDraw();
     if (t - G.lastBeat > 900) { G.lastBeat = t; sfxThump(0.18); setTimeout(() => sfxThump(0.12), 170); }
   } else if (G.phase === 'duel') {
@@ -401,8 +416,8 @@ function update() {
       G.aim[1] = Math.min(H, Math.max(0, G.aim[1]));
       // tilt sideways and back to reload
       if (!desktop && G.bullets === 0 && !G.reloading) {
-        if (sensor.roll > 0.75) G.reloadArmed = true;
-        else if (G.reloadArmed && sensor.roll < 0.4) { G.reloadArmed = false; tryReload(false); }
+        if (sensor.roll > 0.6) G.reloadArmed = true;
+        else if (G.reloadArmed && sensor.roll < 0.3) { G.reloadArmed = false; tryReload(false); }
       }
     }
     if (G.reloading && t >= G.reloading) { G.reloading = 0; G.bullets = 6; sfxClick(0.5); }
@@ -423,7 +438,7 @@ function update() {
   if (S.debug) {
     $('debug').hidden = false;
     $('debug').textContent = desktop ? 'masaüstü modu' :
-      `dik: ${sensor.up.toFixed(2)}  yan: ${sensor.roll.toFixed(2)}\n` +
+      `üst kenar: ${sensor.topUp.toFixed(2)}  yan: ${sensor.roll.toFixed(2)}  kılıf: ${sensor.holstered ? 'evet' : 'hayır'}\n` +
       `dönüş: ${sensor.rate[0].toFixed(0)} / ${sensor.rate[1].toFixed(0)} °/s\nfaz: ${G.phase}`;
   } else $('debug').hidden = true;
 }
@@ -626,12 +641,10 @@ $('startBtn').addEventListener('click', async () => {
   initAudio(); if (AC.state === 'suspended') AC.resume();
   const ok = await enableSensors();
   desktop = !ok;
-  sensor.g0 = null; // re-capture "upright" from the current pose
-  if (ok) await new Promise(r => setTimeout(r, 150));
   try { await navigator.wakeLock?.request('screen'); } catch (e) {}
   startRound();
 });
-$('againBtn').addEventListener('click', () => { sensor.g0 = null; setTimeout(startRound, 150); });
+$('againBtn').addEventListener('click', () => setTimeout(startRound, 150));
 
 function bindSettings() {
   const num = (id, key, fmt) => {
@@ -639,7 +652,7 @@ function bindSettings() {
     el.value = S[key]; out.textContent = fmt(S[key]);
     el.addEventListener('input', () => { S[key] = +el.value; out.textContent = fmt(S[key]); saveSettings(); });
   };
-  num('draw', 'draw', v => v.toFixed(2)); num('sens', 'sens', v => v.toFixed(1) + '×'); num('sway', 'sway', v => v.toFixed(1) + '×');
+  num('holster', 'holster', v => Math.round(Math.asin(v) * 180 / Math.PI) + '°'); num('draw', 'draw', v => Math.round(Math.asin(v) * 180 / Math.PI) + '°'); num('sens', 'sens', v => v.toFixed(1) + '×'); num('sway', 'sway', v => v.toFixed(1) + '×');
   for (const [id, key] of [['wait', 'wait'], ['bot', 'bot']]) {
     const el = $('s_' + id); el.value = S[key];
     el.addEventListener('change', () => { S[key] = el.value; saveSettings(); });
