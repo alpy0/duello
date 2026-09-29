@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b0f12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Düello Deneme</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rye&family=Barlow+Condensed:wght@500;700&display=swap">
+<style>
+/* Layout: one full-bleed portrait canvas; DOM overlays sit on top for menus. Single dusk look, no theme switch. */
+:root {
+  --ink: #1b0f12;        /* night-maroon ground */
+  --dust: #f3d9b1;       /* sunbleached paper */
+  --ember: #e8743b;      /* sunset orange */
+  --blood: #d93a2b;      /* hits, danger */
+  --brass: #e3b54a;      /* gun metal, highlights */
+  --shade: rgba(27, 15, 18, .82);
+  --display: "Rye", "Georgia", serif;
+  --body: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: var(--ink); color: var(--dust);
+  font-family: var(--body);
+  overscroll-behavior: none; touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.screen {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 18px;
+  padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  text-align: center; background: var(--shade);
+}
+.screen[hidden], [hidden] { display: none !important; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(40px, 13vw, 64px); line-height: .95; color: var(--brass); text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 10vw, 48px); line-height: 1; text-wrap: balance; }
+p { font-size: 19px; line-height: 1.3; max-width: 30ch; }
+.small { font-size: 15px; opacity: .75; max-width: 34ch; }
+.label { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
+button {
+  font-family: var(--display); font-size: 24px; color: var(--ink);
+  background: var(--brass); border: 0; border-radius: 4px;
+  padding: 14px 34px; cursor: pointer;
+  box-shadow: 0 4px 0 #8a6420;
+}
+button:active { transform: translateY(3px); box-shadow: 0 1px 0 #8a6420; }
+button:focus-visible { outline: 3px solid var(--dust); outline-offset: 3px; }
+button.ghost { background: transparent; color: var(--dust); box-shadow: none; font-family: var(--body); font-size: 17px; text-decoration: underline; padding: 6px 10px; }
+.stats { display: grid; grid-template-columns: auto auto; gap: 6px 22px; font-size: 20px; text-align: left; font-variant-numeric: tabular-nums; }
+.stats dt { opacity: .7; }
+.stats dd { font-weight: 700; text-align: right; }
+#holsterPic { width: 120px; height: 150px; }
+#gear {
+  position: fixed; right: 12px; top: max(12px, env(safe-area-inset-top));
+  width: 44px; height: 44px; padding: 0; font-size: 22px; line-height: 44px;
+  background: rgba(0,0,0,.35); color: var(--dust); box-shadow: none; border-radius: 50%;
+  font-family: var(--body); z-index: 5;
+}
+#settings { justify-content: flex-start; overflow-y: auto; touch-action: pan-y; background: rgba(27,15,18,.96); z-index: 6; }
+.row { width: 100%; max-width: 360px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; text-align: left; font-size: 17px; }
+.row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--ember); }
+.row output { font-variant-numeric: tabular-nums; color: var(--brass); }
+.row select, .row input[type=checkbox] { accent-color: var(--ember); font-size: 16px; }
+#debug { position: fixed; left: 8px; bottom: max(8px, env(safe-area-inset-bottom)); font: 12px/1.3 ui-monospace, Menlo, monospace; color: var(--dust); opacity: .6; pointer-events: none; white-space: pre; z-index: 4; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="gear" aria-label="Ayarlar">⚙</button>
+<div id="debug" hidden></div>
+
+<section class="screen" id="menu">
+  <div class="label">Deneme sürümü</div>
+  <h1>Öğlen<br>Düellosu</h1>
+  <p>Telefonun tabancan. Kılıfa koy, işareti bekle, çek ve vur.</p>
+  <p class="small">Telefonu dik, ekran sana bakacak şekilde tutarken başla. Ekran döndürmeyi kilitle.</p>
+  <button id="startBtn">Başla</button>
+  <p class="small" id="deviceNote"></p>
+</section>
+
+<section class="screen" id="holster" hidden>
+  <svg id="holsterPic" viewBox="0 0 120 150" aria-hidden="true">
+    <rect x="40" y="10" width="40" height="72" rx="7" fill="none" stroke="#f3d9b1" stroke-width="4"/>
+    <path d="M60 92 v40 m-14 -14 l14 14 l14 -14" fill="none" stroke="#e3b54a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <h2 id="holsterTitle">Kılıfa koy</h2>
+  <p id="holsterText">Telefonu kalçanın yanına indir. Üst kenarı yere, ekranı bacağına baksın.</p>
+  <p class="small" id="holsterHint"></p>
+</section>
+
+<section class="screen" id="result" hidden>
+  <div class="label" id="resultLabel">Düello bitti</div>
+  <h1 id="resultTitle">Kazandın</h1>
+  <dl class="stats" id="resultStats"></dl>
+  <button id="againBtn">Tekrar düello</button>
+</section>
+
+<section class="screen" id="settings" hidden>
+  <h2>Ayarlar</h2>
+  <p class="small">Hissi burada ayarla. Değerler bu telefonda saklanır.</p>
+  <label class="row" for="s_draw">Çekme eşiği <output id="o_draw"></output>
+    <input type="range" id="s_draw" min="0.2" max="0.95" step="0.05"></label>
+  <label class="row" for="s_sens">Nişan hassasiyeti <output id="o_sens"></output>
+    <input type="range" id="s_sens" min="0.3" max="3" step="0.1"></label>
+  <label class="row" for="s_sway">El titremesi <output id="o_sway"></output>
+    <input type="range" id="s_sway" min="0" max="2" step="0.1"></label>
+  <label class="row" for="s_wait">Bekleme süresi
+    <select id="s_wait"><option value="long">10–15 sn (orijinal)</option><option value="short">3–5 sn (hızlı test)</option></select></label>
+  <label class="row" for="s_bot">Rakip
+    <select id="s_bot"><option value="easy">Yavaş</option><option value="normal">Normal</option><option value="hard">Hızlı</option></select></label>
+  <label class="row" for="s_invx">Yatay nişanı ters çevir <input type="checkbox" id="s_invx"></label>
+  <label class="row" for="s_invy">Dikey nişanı ters çevir <input type="checkbox" id="s_invy"></label>
+  <label class="row" for="s_debug">Sensör değerlerini göster <input type="checkbox" id="s_debug"></label>
+  <button id="closeSettings">Kapat</button>
+</section>
+
+<script>
+(() => {
+'use strict';
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+const DEFAULTS = { draw: 0.6, sens: 1.2, sway: 1, wait: 'long', bot: 'normal', invx: false, invy: false, debug: false };
+let S = { ...DEFAULTS };
+try { Object.assign(S, JSON.parse(localStorage.getItem('duel.settings') || '{}')); } catch (e) {}
+const saveSettings = () => { try { localStorage.setItem('duel.settings', JSON.stringify(S)); } catch (e) {} };
+const BOT = {
+  easy:   { react: [700, 1000], fire: [1100, 1500], acc: 0.30 },
+  normal: { react: [480, 750],  fire: [800, 1150],  acc: 0.42 },
+  hard:   { react: [330, 520],  fire: [600, 850],   acc: 0.55 },
+};
+
+// ─── DOM ─────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d');
+const screens = ['menu', 'holster', 'result', 'settings'];
+const show = name => screens.forEach(s => $(s).hidden = s !== name);
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  buildScenery();
+}
+window.addEventListener('resize', resize);
+
+// ─── Audio (all synthesized, no files) ───────────────────────────────────────
+let AC = null, master = null, windGain = null;
+function initAudio() {
+  if (AC) return;
+  AC = new (window.AudioContext || window.webkitAudioContext)();
+  master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination);
+  // looping wind: filtered noise
+  const buf = noiseBuffer(3);
+  const src = AC.createBufferSource(); src.buffer = buf; src.loop = true;
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.6;
+  windGain = AC.createGain(); windGain.gain.value = 0;
+  src.connect(bp).connect(windGain).connect(master); src.start();
+}
+function noiseBuffer(sec) {
+  const b = AC.createBuffer(1, AC.sampleRate * sec, AC.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function env(node, t, a, peak, dec) {
+  node.gain.setValueAtTime(0.0001, t);
+  node.gain.exponentialRampToValueAtTime(peak, t + a);
+  node.gain.exponentialRampToValueAtTime(0.0001, t + a + dec);
+}
+function sfxGunshot(dist = 0) {
+  if (!AC) return; const t = AC.currentTime;
+  const n = AC.createBufferSource(); n.buffer = noiseBuffer(0.6);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(dist ? 2500 : 7000, t); lp.frequency.exponentialRampToValueAtTime(300, t + 0.35);
+  const g = AC.createGain(); env(g, t, 0.002, dist ? 0.35 : 0.9, 0.4);
+  n.connect(lp).connect(g).connect(master); n.start(t);
+  const o = AC.createOscillator(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.2);
+  const og = AC.createGain(); env(og, t, 0.002, dist ? 0.3 : 0.8, 0.25);
+  o.connect(og).connect(master); o.start(t); o.stop(t + 0.3);
+}
+function sfxBell() {
+  if (!AC) return; const t = AC.currentTime;
+  [[660, 0.5], [1320, 0.25], [1980, 0.12]].forEach(([f, v]) => {
+    const o = AC.createOscillator(); o.frequency.value = f;
+    const g = AC.createGain(); env(g, t, 0.003, v, 1.4);
+    o.connect(g).connect(master); o.start(t); o.stop(t + 1.5);
+  });
+}
+function sfxClick(hi = 1) {
+  if (!AC) return; const t = AC.currentTime;
+  const n = AC.createBufferSource(); n.buffer = noiseBuffer(0.05);
+  const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500 * hi;
+  const g = AC.createGain(); env(g, t, 0.001, 0.5, 0.04);
+  n.connect(hp).connect(g).connect(master); n.start(t);
+}
+function sfxThump(vol = 0.5) {
+  if (!AC) return; const t = AC.currentTime;
+  const o = AC.createOscillator(); o.frequency.setValueAtTime(60, t); o.frequency.exponentialRampToValueAtTime(35, t + 0.15);
+  const g = AC.createGain(); env(g, t, 0.005, vol, 0.18);
+  o.connect(g).connect(master); o.start(t); o.stop(t + 0.25);
+}
+function setWind(v) { if (windGain) windGain.gain.setTargetAtTime(v, AC.currentTime, 0.4); }
+const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+
+// ─── Sensors ─────────────────────────────────────────────────────────────────
+// Gravity direction is compared with the one captured when the player pressed
+// Start (phone held upright). That sidesteps the iOS/Android sign differences.
+const sensor = { ok: false, g: [0, 0, 0], g0: null, up: 1, roll: 0, rate: [0, 0], last: 0 };
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+  const g = [a.x, a.y, a.z], m = Math.hypot(...g) || 1;
+  // light low-pass so a jerk of the wrist does not read as a pose change
+  for (let i = 0; i < 3; i++) sensor.g[i] += (g[i] / m - sensor.g[i]) * 0.35;
+  if (!sensor.g0) sensor.g0 = [...sensor.g];
+  const g0 = sensor.g0;
+  sensor.up = sensor.g[0] * g0[0] + sensor.g[1] * g0[1] + sensor.g[2] * g0[2];
+  sensor.roll = Math.abs(sensor.g[0]);
+  const r = e.rotationRate;
+  if (r) sensor.rate = [r.gamma || 0, r.beta || 0]; // deg/s: turn left-right, tilt up-down
+  sensor.ok = true; sensor.last = performance.now();
+}
+async function enableSensors() {
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      const res = await DeviceMotionEvent.requestPermission();
+      if (res !== 'granted') return false;
+    }
+  } catch (e) { return false; }
+  window.addEventListener('devicemotion', onMotion);
+  // wait briefly for the first reading; desktops never send one
+  await new Promise(r => setTimeout(r, 600));
+  return sensor.ok;
+}
+
+// ─── Desktop fallback: Space = holster, release = draw, mouse aims ───────────
+const kb = { space: false, mouse: [0, 0], hasMouse: false };
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { kb.space = true; e.preventDefault(); }
+  if (e.code === 'KeyR') tryReload(true);
+});
+window.addEventListener('keyup', e => { if (e.code === 'Space') { kb.space = false; e.preventDefault(); } });
+window.addEventListener('mousemove', e => { kb.mouse = [e.clientX, e.clientY]; kb.hasMouse = true; });
+
+let desktop = false;
+const isHolstered = () => desktop ? kb.space : sensor.up < -S.draw;
+const isDrawn     = () => desktop ? !kb.space : sensor.up > S.draw;
+
+// ─── Game state ──────────────────────────────────────────────────────────────
+const G = {
+  phase: 'menu', t0: 0, waitUntil: 0, holsterSince: 0, fouls: 0,
+  drawAt: 0, drawnAt: 0, hp: 100, bullets: 6, reloading: 0, reloadArmed: false,
+  aim: [0, 0], shots: 0, hits: 0, heads: 0, flash: 0, hurt: 0, kick: 0,
+  bot: null, fx: [], lastBeat: 0,
+};
+const rnd = (a, b) => a + Math.random() * (b - a);
+const now = () => performance.now();
+
+function newBot() {
+  const cfg = BOT[S.bot] || BOT.normal;
+  return { hp: 100, drawnAt: 0, reactAt: 0, nextShot: 0, cfg, dead: 0, flash: 0, hitT: 0 };
+}
+
+function startRound() {
+  G.hp = 100; G.bullets = 6; G.reloading = 0; G.shots = 0; G.hits = 0; G.heads = 0; G.fouls = 0;
+  G.bot = newBot(); G.fx = []; G.drawnAt = 0; G.drawAt = 0;
+  toHolster();
+}
+function toHolster(msg) {
+  G.phase = 'holster'; G.holsterSince = 0;
+  $('holsterTitle').textContent = 'Kılıfa koy';
+  $('holsterText').textContent = desktop
+    ? 'Boşluk tuşuna basılı tut. Tabanca kılıfta.'
+    : 'Telefonu kalçanın yanına indir. Üst kenarı yere, ekranı bacağına baksın.';
+  $('holsterHint').textContent = msg || '';
+  show('holster'); setWind(0.05);
+}
+function toWait() {
+  G.phase = 'wait';
+  const [a, b] = S.wait === 'short' ? [3, 5] : [10, 15];
+  G.waitUntil = now() + rnd(a, b) * 1000;
+  $('holsterTitle').textContent = 'Kılıfta';
+  $('holsterText').textContent = 'Kıpırdama. İşareti bekle.';
+  $('holsterHint').textContent = desktop ? 'Çan çalınca boşluğu bırak.' : 'Çan çalınca telefonu kaldır.';
+  setWind(0.12); buzz(40);
+}
+function foul() {
+  G.fouls++; G.hp = Math.max(1, G.hp - 25); sfxThump(0.7); buzz([80, 60, 80]);
+  toHolster('Erken çektin. Cezası −25 can. Yeniden kılıfa koy.');
+}
+function toDraw() {
+  G.phase = 'duel'; G.drawAt = now(); G.drawnAt = 0;
+  const b = G.bot; b.reactAt = G.drawAt + rnd(...b.cfg.react);
+  show(null); setWind(0.03); sfxBell(); buzz(60);
+}
+function playerDraws() {
+  G.drawnAt = now();
+  G.aim = [W / 2 + rnd(-0.22, 0.22) * W, H * 0.86]; // the gun comes up from the hip
+  sfxClick(0.6);
+}
+function endRound(win) {
+  G.phase = 'result'; setWind(0);
+  $('resultLabel').textContent = win ? 'Düello bitti' : 'Yere serildin';
+  $('resultTitle').textContent = win ? 'Kazandın' : 'Kaybettin';
+  const drawMs = G.drawnAt ? Math.round(G.drawnAt - G.drawAt) : null;
+  const acc = G.shots ? Math.round(100 * G.hits / G.shots) : 0;
+  const rows = [
+    ['Çekme süren', drawMs != null ? drawMs + ' ms' : '—'],
+    ['Rakibin çekmesi', Math.round(G.bot.reactAt - G.drawAt) + ' ms'],
+    ['İsabet', `${G.hits}/${G.shots} (%${acc})`],
+    ['Kafadan', String(G.heads)],
+    ['Kalan can', String(Math.max(0, Math.round(G.hp)))],
+    ['Erken çekme', String(G.fouls)],
+  ];
+  $('resultStats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  setTimeout(() => show('result'), 900);
+}
+
+// ─── Shooting ────────────────────────────────────────────────────────────────
+function botBox() {
+  const fy = H * 0.62, bh = Math.min(H * 0.24, W * 0.5), x = W / 2;
+  return { x, fy, bh, headY: fy - bh * 0.88, headR: bh * 0.075,
+    torso: [x - bh * 0.12, fy - bh * 0.79, bh * 0.24, bh * 0.37],
+    legs: [x - bh * 0.1, fy - bh * 0.42, bh * 0.2, bh * 0.42] };
+}
+function aimPoint() {
+  const t = (now() - G.drawnAt) / 1000;
+  const A = Math.max(0.22, 1 - t / 1.3);             // shaky right after the draw, steadier later
+  const amp = S.sway * (6 + 34 * A) * (Math.min(W, H) / 400);
+  const sx = Math.sin(t * 2.3) + 0.6 * Math.sin(t * 5.1 + 1.3) + 0.3 * Math.sin(t * 11.7);
+  const sy = Math.sin(t * 1.9 + 0.7) + 0.6 * Math.sin(t * 4.3 + 2.1) + 0.3 * Math.sin(t * 9.9);
+  return [G.aim[0] + sx * amp / 1.9, G.aim[1] + sy * amp / 1.9 - G.kick];
+}
+function fire() {
+  if (G.phase !== 'duel' || !G.drawnAt || G.reloading || G.bot.dead) return;
+  if (G.bullets <= 0) { sfxClick(1.4); return; }
+  G.bullets--; G.shots++; G.flash = 1; G.kick = Math.min(H * 0.12, G.kick + H * 0.06);
+  sfxGunshot(); buzz(35);
+  const [ax, ay] = aimPoint(), b = botBox();
+  let dmg = 0, head = false;
+  if (Math.hypot(ax - b.x, ay - b.headY) < b.headR * 1.25) { dmg = rnd(60, 75); head = true; }
+  else if (inRect(ax, ay, b.torso)) dmg = rnd(25, 40);
+  else if (inRect(ax, ay, b.legs)) dmg = rnd(15, 22);
+  if (dmg) {
+    G.hits++; if (head) G.heads++;
+    G.bot.hp -= dmg; G.bot.hitT = now(); sfxThump(0.4);
+    G.fx.push({ type: 'hit', x: ax, y: ay, t: now(), head });
+    if (G.bot.hp <= 0) { G.bot.dead = now(); endRound(true); }
+  } else {
+    G.fx.push({ type: 'dust', x: ax, y: Math.max(ay, H * 0.62), t: now() });
+  }
+}
+const inRect = (x, y, [rx, ry, rw, rh]) => x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+
+function tryReload(key) {
+  if (G.phase !== 'duel' || !G.drawnAt || G.reloading || G.bullets === 6) return;
+  if (!key && G.bullets > 0) return;
+  G.reloading = now() + 1200; sfxClick(0.8);
+  setTimeout(() => sfxClick(0.9), 400); setTimeout(() => sfxClick(1.1), 800);
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (G.phase === 'duel') { e.preventDefault(); fire(); }
+});
+
+// ─── Update ──────────────────────────────────────────────────────────────────
+let lastT = now();
+function update() {
+  const t = now(), dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
+  G.flash = Math.max(0, G.flash - dt * 9);
+  G.hurt = Math.max(0, G.hurt - dt * 2.5);
+  G.kick = Math.max(0, G.kick - dt * H * 0.5);
+
+  if (G.phase === 'holster') {
+    if (isHolstered()) {
+      if (!G.holsterSince) G.holsterSince = t;
+      if (t - G.holsterSince > 600) toWait();
+    } else G.holsterSince = 0;
+  } else if (G.phase === 'wait') {
+    if (!isHolstered() && isDrawn()) foul();
+    else if (t >= G.waitUntil) toDraw();
+    if (t - G.lastBeat > 900) { G.lastBeat = t; sfxThump(0.18); setTimeout(() => sfxThump(0.12), 170); }
+  } else if (G.phase === 'duel') {
+    if (!G.drawnAt && isDrawn()) playerDraws();
+    // aim
+    if (G.drawnAt) {
+      if (desktop) { if (kb.hasMouse) G.aim = [...kb.mouse]; }
+      else {
+        const k = (W / 40) * S.sens;
+        G.aim[0] += (S.invx ? 1 : -1) * sensor.rate[0] * dt * k;
+        G.aim[1] += (S.invy ? 1 : -1) * sensor.rate[1] * dt * k;
+      }
+      G.aim[0] = Math.min(W, Math.max(0, G.aim[0]));
+      G.aim[1] = Math.min(H, Math.max(0, G.aim[1]));
+      // tilt sideways and back to reload
+      if (!desktop && G.bullets === 0 && !G.reloading) {
+        if (sensor.roll > 0.75) G.reloadArmed = true;
+        else if (G.reloadArmed && sensor.roll < 0.4) { G.reloadArmed = false; tryReload(false); }
+      }
+    }
+    if (G.reloading && t >= G.reloading) { G.reloading = 0; G.bullets = 6; sfxClick(0.5); }
+    // bot
+    const b = G.bot;
+    if (!b.dead && G.hp > 0) {
+      if (!b.drawnAt && t >= b.reactAt) { b.drawnAt = t; b.nextShot = t + rnd(180, 320); }
+      if (b.drawnAt && t >= b.nextShot) {
+        b.nextShot = t + rnd(...b.cfg.fire); b.flash = 1; sfxGunshot(1);
+        if (Math.random() < b.cfg.acc) {
+          G.hp -= rnd(18, 30); G.hurt = 1; buzz(120); sfxThump(0.6);
+          if (G.hp <= 0) endRound(false);
+        }
+      }
+    }
+    b.flash = Math.max(0, b.flash - dt * 9);
+  }
+  if (S.debug) {
+    $('debug').hidden = false;
+    $('debug').textContent = desktop ? 'masaüstü modu' :
+      `dik: ${sensor.up.toFixed(2)}  yan: ${sensor.roll.toFixed(2)}\n` +
+      `dönüş: ${sensor.rate[0].toFixed(0)} / ${sensor.rate[1].toFixed(0)} °/s\nfaz: ${G.phase}`;
+  } else $('debug').hidden = true;
+}
+
+// ─── Drawing ─────────────────────────────────────────────────────────────────
+let scenery = null;
+function buildScenery() {
+  // pre-render the static street once per resize
+  const off = document.createElement('canvas'); off.width = W * DPR; off.height = H * DPR;
+  const c = off.getContext('2d'); c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const hz = H * 0.5;
+  const sky = c.createLinearGradient(0, 0, 0, hz);
+  sky.addColorStop(0, '#3b1c2c'); sky.addColorStop(0.55, '#b4473a'); sky.addColorStop(1, '#f19a4a');
+  c.fillStyle = sky; c.fillRect(0, 0, W, hz);
+  // sun
+  const sun = c.createRadialGradient(W * 0.5, hz * 0.92, 0, W * 0.5, hz * 0.92, W * 0.35);
+  sun.addColorStop(0, 'rgba(255,226,150,1)'); sun.addColorStop(0.18, 'rgba(255,200,110,.9)'); sun.addColorStop(1, 'rgba(255,160,80,0)');
+  c.fillStyle = sun; c.fillRect(0, 0, W, hz);
+  // mesas
+  c.fillStyle = '#6e2a2e';
+  c.beginPath(); c.moveTo(0, hz);
+  const pts = [[0, .86], [.12, .84], [.16, .74], [.3, .73], [.34, .85], [.62, .86], [.66, .77], [.8, .76], [.84, .88], [1, .87]];
+  pts.forEach(([x, y]) => c.lineTo(x * W, y * hz)); c.lineTo(W, hz); c.fill();
+  // ground
+  const gr = c.createLinearGradient(0, hz, 0, H);
+  gr.addColorStop(0, '#d9955a'); gr.addColorStop(1, '#8e5231');
+  c.fillStyle = gr; c.fillRect(0, hz, W, H - hz);
+  // street edges converge on the horizon
+  c.strokeStyle = 'rgba(80,40,25,.35)'; c.lineWidth = 2;
+  [[-0.2, 0.44], [1.2, 0.56]].forEach(([bx, vx]) => { c.beginPath(); c.moveTo(bx * W, H); c.lineTo(vx * W, hz); c.stroke(); });
+  // wagon ruts
+  c.strokeStyle = 'rgba(80,40,25,.18)';
+  [[0.38, 0.49], [0.62, 0.51]].forEach(([bx, vx]) => { c.beginPath(); c.moveTo(bx * W, H); c.lineTo(vx * W, hz); c.stroke(); });
+  // facades on both sides, shrinking toward the horizon
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 6; i++) {
+      const d = i / 6, s = 1 - d * 0.82;
+      const bw = W * 0.2 * s, bh = H * 0.34 * s * (0.8 + ((i * 37) % 5) / 12);
+      const edge = side < 0 ? lerp(-0.05 * W, 0.44 * W, d * 0.95) : lerp(1.05 * W, 0.56 * W, d * 0.95);
+      const x = side < 0 ? edge - bw : edge;
+      const base = lerp(H * 0.95, hz, d * 0.95);
+      c.fillStyle = `rgb(${46 + i * 14},${22 + i * 8},${24 + i * 6})`;
+      c.fillRect(x, base - bh, bw, bh);
+      c.fillStyle = `rgba(240,170,90,${0.25 + d * 0.3})`;
+      for (let wy = 0; wy < 2; wy++) for (let wx = 0; wx < 2; wx++)
+        c.fillRect(x + bw * (0.18 + wx * 0.42), base - bh * (0.78 - wy * 0.34), bw * 0.2, bh * 0.14);
+      c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(x, base - bh * 0.22, bw, bh * 0.05); // porch roof line
+    }
+  }
+  scenery = off;
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function drawBot() {
+  const b = G.bot, bx = botBox(); if (!b) return;
+  const { x, fy, bh } = bx;
+  ctx.save();
+  if (b.dead) { // topple backwards
+    const k = Math.min(1, (now() - b.dead) / 600);
+    ctx.translate(x, fy); ctx.rotate(-k * 1.45 * (x > W / 2 ? -1 : 1)); ctx.translate(-x, -fy);
+  }
+  const hit = now() - b.hitT < 120;
+  ctx.fillStyle = hit ? '#5a1414' : '#22110f';
+  // shadow
+  ctx.save(); ctx.globalAlpha = .25; ctx.beginPath(); ctx.ellipse(x, fy, bh * .2, bh * .03, 0, 0, 7); ctx.fill(); ctx.restore();
+  // legs
+  ctx.fillRect(x - bh * .1, fy - bh * .42, bh * .08, bh * .42);
+  ctx.fillRect(x + bh * .02, fy - bh * .42, bh * .08, bh * .42);
+  // coat
+  ctx.beginPath(); ctx.moveTo(x - bh * .14, fy - bh * .78); ctx.lineTo(x + bh * .14, fy - bh * .78);
+  ctx.lineTo(x + bh * .16, fy - bh * .36); ctx.lineTo(x - bh * .16, fy - bh * .36); ctx.fill();
+  // arms: right arm raises when the bot has drawn
+  ctx.lineWidth = bh * .06; ctx.lineCap = 'round'; ctx.strokeStyle = ctx.fillStyle;
+  ctx.beginPath(); ctx.moveTo(x - bh * .14, fy - bh * .74); ctx.lineTo(x - bh * .19, fy - bh * .46); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + bh * .14, fy - bh * .74);
+  if (b.drawnAt) ctx.lineTo(x + bh * .02, fy - bh * .66); else ctx.lineTo(x + bh * .19, fy - bh * .46);
+  ctx.stroke();
+  if (b.drawnAt) { ctx.fillRect(x - bh * .01, fy - bh * .69, bh * .05, bh * .035); }
+  // head + hat
+  ctx.beginPath(); ctx.arc(x, bx.headY, bx.headR, 0, 7); ctx.fill();
+  ctx.fillRect(x - bh * .15, bx.headY - bx.headR * .9, bh * .3, bh * .025);
+  ctx.beginPath(); ctx.moveTo(x - bh * .075, bx.headY - bx.headR * .9); ctx.lineTo(x - bh * .06, bx.headY - bx.headR * 2.2);
+  ctx.lineTo(x + bh * .06, bx.headY - bx.headR * 2.2); ctx.lineTo(x + bh * .075, bx.headY - bx.headR * .9); ctx.fill();
+  // muzzle flash
+  if (b.flash > 0) {
+    ctx.fillStyle = `rgba(255,220,120,${b.flash})`;
+    ctx.beginPath(); ctx.arc(x + bh * .02, fy - bh * .68, bh * .06 * (1 + b.flash), 0, 7); ctx.fill();
+  }
+  ctx.restore();
+  // health bar
+  if (!b.dead) {
+    const w = bh * .5, hx = x - w / 2, hy = bx.headY - bx.headR * 3.2;
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(hx, hy, w, 6);
+    ctx.fillStyle = '#e3b54a'; ctx.fillRect(hx, hy, w * Math.max(0, b.hp) / 100, 6);
+  }
+}
+
+function drawGun() {
+  if (!G.drawnAt || G.phase !== 'duel') return;
+  const [ax, ay] = aimPoint();
+  const rise = Math.min(1, (now() - G.drawnAt) / 160);
+  const baseX = W * 0.62 + (ax - W / 2) * 0.35, baseY = H + H * 0.2 * (1 - rise) - G.kick * 0.6;
+  const s = Math.min(W, H) / 400;
+  ctx.save(); ctx.translate(baseX, baseY);
+  ctx.rotate(Math.atan2(ay - baseY, ax - baseX) + Math.PI / 2);
+  if (G.reloading) ctx.rotate(0.9 * Math.sin(Math.min(1, (G.reloading - now()) / 1200) * Math.PI));
+  // hand
+  ctx.fillStyle = '#6b3b28'; ctx.beginPath(); ctx.ellipse(0, -10 * s, 34 * s, 46 * s, 0, 0, 7); ctx.fill();
+  // grip, cylinder, barrel
+  ctx.fillStyle = '#4a2a1a'; ctx.fillRect(-14 * s, -70 * s, 28 * s, 60 * s);
+  ctx.fillStyle = '#c99a35'; ctx.fillRect(-18 * s, -118 * s, 36 * s, 50 * s);
+  ctx.fillStyle = '#e3b54a'; ctx.fillRect(-8 * s, -210 * s, 16 * s, 100 * s);
+  ctx.fillStyle = '#8a6420'; ctx.fillRect(-3 * s, -218 * s, 6 * s, 10 * s);
+  if (G.flash > 0) {
+    ctx.fillStyle = `rgba(255,230,140,${G.flash})`;
+    ctx.beginPath(); ctx.arc(0, -232 * s, 30 * s * (0.6 + G.flash), 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCrosshair() {
+  if (!G.drawnAt || G.phase !== 'duel' || G.reloading) return;
+  const [x, y] = aimPoint(), r = 14;
+  ctx.strokeStyle = 'rgba(255,245,220,.9)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x - r * 1.8, y); ctx.lineTo(x - r * .5, y); ctx.moveTo(x + r * .5, y); ctx.lineTo(x + r * 1.8, y);
+  ctx.moveTo(x, y - r * 1.8); ctx.lineTo(x, y - r * .5); ctx.moveTo(x, y + r * .5); ctx.lineTo(x, y + r * 1.8);
+  ctx.stroke();
+}
+
+function drawFx() {
+  const t = now();
+  G.fx = G.fx.filter(f => t - f.t < 500);
+  for (const f of G.fx) {
+    const k = (t - f.t) / 500;
+    if (f.type === 'hit') {
+      ctx.strokeStyle = f.head ? `rgba(217,58,43,${1 - k})` : `rgba(255,245,220,${1 - k})`;
+      ctx.lineWidth = 3; const g = 6 + k * 6, s = f.head ? 16 : 11;
+      ctx.beginPath();
+      for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { ctx.moveTo(f.x + dx * g, f.y + dy * g); ctx.lineTo(f.x + dx * (g + s), f.y + dy * (g + s)); }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = `rgba(210,170,120,${0.6 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(f.x, f.y, 4 + k * 14, 0, 7); ctx.fill();
+    }
+  }
+}
+
+function drawHud() {
+  if (G.phase !== 'duel' && G.phase !== 'result') return;
+  const pad = 16, top = Math.max(16, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 16) + 44;
+  // player health
+  const w = Math.min(220, W * 0.5);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(pad, top, w, 12);
+  ctx.fillStyle = G.hp > 35 ? '#e3b54a' : '#d93a2b'; ctx.fillRect(pad, top, w * Math.max(0, G.hp) / 100, 12);
+  ctx.font = '600 15px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#f3d9b1'; ctx.textBaseline = 'top';
+  ctx.fillText('CANIN', pad, top + 16);
+  // bullets
+  const by = H - Math.max(24, 24) - 30;
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = i < G.bullets ? '#e3b54a' : 'rgba(243,217,177,.2)';
+    ctx.fillRect(pad + i * 14, by, 8, 22);
+  }
+  if (G.drawnAt && G.bullets === 0 && !G.reloading) {
+    ctx.font = '400 22px Rye, serif'; ctx.fillStyle = '#f3d9b1'; ctx.textAlign = 'center';
+    ctx.fillText(desktop ? 'BOŞ · R ile doldur' : 'BOŞ · yana yatır, geri getir', W / 2, H * 0.72);
+    ctx.textAlign = 'start';
+  }
+  // draw time
+  if (G.drawnAt) {
+    ctx.font = '700 18px "Barlow Condensed", sans-serif'; ctx.fillStyle = '#f3d9b1'; ctx.textAlign = 'right';
+    ctx.fillText(`çekiş ${Math.round(G.drawnAt - G.drawAt)} ms`, W - pad, top + 16);
+    ctx.textAlign = 'start';
+  }
+  // DRAW cue
+  const since = now() - G.drawAt;
+  if (G.phase === 'duel' && since < 700) {
+    ctx.save(); ctx.globalAlpha = 1 - since / 700;
+    ctx.font = `400 ${Math.min(W * 0.28, 140)}px Rye, serif`; ctx.fillStyle = '#fff3d6'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('ÇEK!', W / 2, H * 0.3); ctx.restore();
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  if (scenery && scenery.width && scenery.height) ctx.drawImage(scenery, 0, 0, W, H);
+  if (G.bot && (G.phase === 'duel' || G.phase === 'result')) drawBot();
+  drawFx(); drawGun(); drawCrosshair(); drawHud();
+  if (G.hurt > 0) { // red edge when hit
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.max(W, H) * .7);
+    g.addColorStop(0, 'rgba(217,58,43,0)'); g.addColorStop(1, `rgba(217,58,43,${0.55 * G.hurt})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function loop() { update(); render(); requestAnimationFrame(loop); }
+
+// ─── Wiring ──────────────────────────────────────────────────────────────────
+$('startBtn').addEventListener('click', async () => {
+  initAudio(); if (AC.state === 'suspended') AC.resume();
+  const ok = await enableSensors();
+  desktop = !ok;
+  sensor.g0 = null; // re-capture "upright" from the current pose
+  if (ok) await new Promise(r => setTimeout(r, 150));
+  try { await navigator.wakeLock?.request('screen'); } catch (e) {}
+  startRound();
+});
+$('againBtn').addEventListener('click', () => { sensor.g0 = null; setTimeout(startRound, 150); });
+
+function bindSettings() {
+  const num = (id, key, fmt) => {
+    const el = $('s_' + id), out = $('o_' + id);
+    el.value = S[key]; out.textContent = fmt(S[key]);
+    el.addEventListener('input', () => { S[key] = +el.value; out.textContent = fmt(S[key]); saveSettings(); });
+  };
+  num('draw', 'draw', v => v.toFixed(2)); num('sens', 'sens', v => v.toFixed(1) + '×'); num('sway', 'sway', v => v.toFixed(1) + '×');
+  for (const [id, key] of [['wait', 'wait'], ['bot', 'bot']]) {
+    const el = $('s_' + id); el.value = S[key];
+    el.addEventListener('change', () => { S[key] = el.value; saveSettings(); });
+  }
+  for (const k of ['invx', 'invy', 'debug']) {
+    const el = $('s_' + k); el.checked = !!S[k];
+    el.addEventListener('change', () => { S[k] = el.checked; saveSettings(); });
+  }
+}
+let beforeSettings = 'menu';
+$('gear').addEventListener('click', () => {
+  if (G.phase === 'duel' || G.phase === 'wait') return; // no pausing mid-duel
+  beforeSettings = screens.find(s => !$(s).hidden) || 'menu'; show('settings');
+});
+$('closeSettings').addEventListener('click', () => show(beforeSettings === 'settings' ? 'menu' : beforeSettings));
+
+$('deviceNote').textContent = ('ontouchstart' in window)
+  ? 'iPhone\'da hareket sensörü için izin isteyecek, "İzin Ver" de.'
+  : 'Bilgisayardasın: boşluk tuşu kılıf, fare nişan, tıklama ateş, R doldurma.';
+
+bindSettings(); resize(); loop();
+})();
+</script>
+</body>
+</html>
