@@ -56,7 +56,7 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
 .stats { display: grid; grid-template-columns: auto auto; gap: 6px 22px; font-size: 20px; text-align: left; font-variant-numeric: tabular-nums; }
 .stats dt { opacity: .7; }
 .stats dd { font-weight: 700; text-align: right; }
-#holsterPic { width: 120px; height: 150px; }
+#holsterPic { width: 150px; height: 150px; object-fit: contain; filter: drop-shadow(0 6px 10px rgba(0,0,0,.5)); }
 #gear {
   position: fixed; right: 12px; top: max(12px, env(safe-area-inset-top));
   width: 44px; height: 44px; padding: 0; font-size: 22px; line-height: 44px;
@@ -87,10 +87,7 @@ button.ghost { background: transparent; color: var(--dust); box-shadow: none; fo
 </section>
 
 <section class="screen" id="holster" hidden>
-  <svg id="holsterPic" viewBox="0 0 120 150" aria-hidden="true">
-    <rect x="40" y="10" width="40" height="72" rx="7" fill="none" stroke="#f3d9b1" stroke-width="4"/>
-    <path d="M60 92 v40 m-14 -14 l14 14 l14 -14" fill="none" stroke="#e3b54a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
+  <img id="holsterPic" src="assets/kilif.webp" alt="" width="150" height="150">
   <h2 id="holsterTitle">Kılıfa koy</h2>
   <p id="holsterText">Telefonu kalçanın yanına indir. Üst kenarı yere, ekranı bacağına baksın.</p>
   <p class="small" id="holsterHint"></p>
@@ -153,6 +150,33 @@ function resize() {
   buildScenery();
 }
 window.addEventListener('resize', resize);
+
+// ─── Art ─────────────────────────────────────────────────────────────────────
+// Generated illustrations. Each sprite is trimmed to its visible pixels once
+// loaded, so placement and hit zones work from the drawn figure, not the canvas.
+const ART = {};
+function loadArt(key, src) {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+    let bb = { x: 0, y: 0, w: c.width, h: c.height };
+    try {
+      const d = x.getImageData(0, 0, c.width, c.height).data;
+      let x0 = c.width, y0 = c.height, x1 = 0, y1 = 0;
+      for (let y = 0; y < c.height; y += 2) for (let xx = 0; xx < c.width; xx += 2) {
+        if (d[(y * c.width + xx) * 4 + 3] > 24) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      if (x1 > x0) bb = { x: x0, y: y0, w: x1 - x0 + 2, h: y1 - y0 + 2 };
+    } catch (e) {}
+    ART[key] = { img, bb };
+    if (key === 'bg') buildScenery();
+  };
+  img.src = src;
+}
+[['bg', 'assets/arkaplan.webp'], ['gun', 'assets/tabanca.webp'], ['idle', 'assets/rakip-durus.webp'],
+ ['aim', 'assets/rakip-nisan.webp'], ['dead', 'assets/rakip-yerde.webp']].forEach(([k, s]) => loadArt(k, s));
+const drawSprite = (a, dx, dy, dw, dh) => ctx.drawImage(a.img, a.bb.x, a.bb.y, a.bb.w, a.bb.h, dx, dy, dw, dh);
 
 // ─── Audio (all synthesized, no files) ───────────────────────────────────────
 let AC = null, master = null, windGain = null;
@@ -342,10 +366,10 @@ function endRound(win) {
 
 // ─── Shooting ────────────────────────────────────────────────────────────────
 function botBox() {
-  const fy = H * 0.62, bh = Math.min(H * 0.24, W * 0.5), x = W / 2;
-  return { x, fy, bh, headY: fy - bh * 0.88, headR: bh * 0.075,
-    torso: [x - bh * 0.12, fy - bh * 0.79, bh * 0.24, bh * 0.37],
-    legs: [x - bh * 0.1, fy - bh * 0.42, bh * 0.2, bh * 0.42] };
+  const fy = H * 0.64, bh = Math.min(H * 0.27, W * 0.62), x = W / 2;
+  return { x, fy, bh, headY: fy - bh * 0.84, headR: bh * 0.06,
+    torso: [x - bh * 0.13, fy - bh * 0.77, bh * 0.26, bh * 0.3],
+    legs: [x - bh * 0.13, fy - bh * 0.47, bh * 0.26, bh * 0.45] };
 }
 function aimPoint() {
   const t = (now() - G.drawnAt) / 1000;
@@ -449,6 +473,12 @@ function buildScenery() {
   // pre-render the static street once per resize
   const off = document.createElement('canvas'); off.width = W * DPR; off.height = H * DPR;
   const c = off.getContext('2d'); c.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (ART.bg) {
+    const im = ART.bg.img, k = Math.max(W / im.naturalWidth, H / im.naturalHeight);
+    const w = im.naturalWidth * k, h = im.naturalHeight * k;
+    c.drawImage(im, (W - w) / 2, (H - h) * 0.6, w, h);
+    scenery = off; return;
+  }
   const hz = H * 0.5;
   const sky = c.createLinearGradient(0, 0, 0, hz);
   sky.addColorStop(0, '#3b1c2c'); sky.addColorStop(0.55, '#b4473a'); sky.addColorStop(1, '#f19a4a');
@@ -495,6 +525,53 @@ const lerp = (a, b, t) => a + (b - a) * t;
 function drawBot() {
   const b = G.bot, bx = botBox(); if (!b) return;
   const { x, fy, bh } = bx;
+  if (!ART.idle) return drawBotShapes(b, bx);
+  // ground shadow
+  ctx.save(); ctx.globalAlpha = .28; ctx.fillStyle = '#3a2210';
+  ctx.beginPath(); ctx.ellipse(x, fy, bh * .22, bh * .035, 0, 0, 7); ctx.fill(); ctx.restore();
+  if (b.dead && ART.dead && now() - b.dead > 140) {
+    const a = ART.dead, w = bh * 1.25, h = w * a.bb.h / a.bb.w;
+    drawSprite(a, x - w / 2, fy - h * 0.8, w, h);
+    return;
+  }
+  const a = (b.drawnAt && ART.aim) ? ART.aim : ART.idle;
+  const h = bh * 1.02, w = h * a.bb.w / a.bb.h;
+  const hit = now() - b.hitT < 110;
+  const jolt = hit ? (Math.random() - .5) * bh * .04 : 0;
+  ctx.save();
+  if (b.dead) { ctx.translate(x, fy); ctx.rotate(-0.5 * Math.min(1, (now() - b.dead) / 140)); ctx.translate(-x, -fy); }
+  drawSprite(a, x - w / 2 + jolt, fy - h, w, h);
+  if (hit) { // flash the figure red: tint only its own pixels
+    ctx.globalCompositeOperation = 'source-atop';
+  }
+  ctx.restore();
+  if (hit) tintFlash(a, x - w / 2 + jolt, fy - h, w, h);
+  if (b.flash > 0) { // muzzle flash at the pointed revolver (aim pose, upper left of the figure)
+    ctx.fillStyle = `rgba(255,225,130,${b.flash})`;
+    ctx.beginPath(); ctx.arc(x - w * 0.18, fy - h * 0.79, bh * .07 * (1 + b.flash), 0, 7); ctx.fill();
+  }
+  if (!b.dead) {
+    const hw = bh * .5, hx = x - hw / 2, hy = fy - h - 14;
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(hx, hy, hw, 7);
+    ctx.fillStyle = '#e3b54a'; ctx.fillRect(hx, hy, hw * Math.max(0, b.hp) / 100, 7);
+  }
+  if (S.debug) { // hit zones, for tuning
+    ctx.strokeStyle = 'rgba(0,255,120,.8)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, bx.headY, bx.headR * 1.25, 0, 7); ctx.stroke();
+    ctx.strokeRect(...bx.torso); ctx.strokeRect(...bx.legs);
+  }
+}
+const tintCanvas = document.createElement('canvas');
+function tintFlash(a, dx, dy, dw, dh) {
+  tintCanvas.width = Math.ceil(dw); tintCanvas.height = Math.ceil(dh);
+  const t = tintCanvas.getContext('2d');
+  t.drawImage(a.img, a.bb.x, a.bb.y, a.bb.w, a.bb.h, 0, 0, dw, dh);
+  t.globalCompositeOperation = 'source-atop'; t.fillStyle = 'rgba(220,40,30,.55)'; t.fillRect(0, 0, dw, dh);
+  ctx.drawImage(tintCanvas, dx, dy);
+}
+
+function drawBotShapes(b, bx) {
+  const { x, fy, bh } = bx;
   ctx.save();
   if (b.dead) { // topple backwards
     const k = Math.min(1, (now() - b.dead) / 600);
@@ -540,21 +617,20 @@ function drawGun() {
   if (!G.drawnAt || G.phase !== 'duel') return;
   const [ax, ay] = aimPoint();
   const rise = Math.min(1, (now() - G.drawnAt) / 160);
-  const baseX = W * 0.62 + (ax - W / 2) * 0.35, baseY = H + H * 0.2 * (1 - rise) - G.kick * 0.6;
-  const s = Math.min(W, H) / 400;
-  ctx.save(); ctx.translate(baseX, baseY);
-  ctx.rotate(Math.atan2(ay - baseY, ax - baseX) + Math.PI / 2);
-  if (G.reloading) ctx.rotate(0.9 * Math.sin(Math.min(1, (G.reloading - now()) / 1200) * Math.PI));
-  // hand
-  ctx.fillStyle = '#6b3b28'; ctx.beginPath(); ctx.ellipse(0, -10 * s, 34 * s, 46 * s, 0, 0, 7); ctx.fill();
-  // grip, cylinder, barrel
-  ctx.fillStyle = '#4a2a1a'; ctx.fillRect(-14 * s, -70 * s, 28 * s, 60 * s);
-  ctx.fillStyle = '#c99a35'; ctx.fillRect(-18 * s, -118 * s, 36 * s, 50 * s);
-  ctx.fillStyle = '#e3b54a'; ctx.fillRect(-8 * s, -210 * s, 16 * s, 100 * s);
-  ctx.fillStyle = '#8a6420'; ctx.fillRect(-3 * s, -218 * s, 6 * s, 10 * s);
-  if (G.flash > 0) {
+  if (!ART.gun) return;
+  const a = ART.gun, h = Math.min(H * 0.44, W * 0.95), w = h * a.bb.w / a.bb.h;
+  // wrist pivot near the bottom right; the gun leans toward where you aim
+  const px = W * 0.97 + (ax - W / 2) * 0.22, py = H + h * 0.3 * (1 - rise) + G.kick * 0.5 + h * 0.12;
+  let ang = (ax - W / 2) / W * 0.35 - G.kick / H * 1.2;
+  if (G.reloading) ang += 0.9 * Math.sin(Math.min(1, (G.reloading - now()) / 1200) * Math.PI);
+  ctx.save(); ctx.translate(px, py); ctx.rotate(ang);
+  drawSprite(a, -w * 0.78, -h, w, h);
+  if (G.flash > 0) { // muzzle sits at the top left of the gun art
+    const mx = -w * 0.78 + w * 0.12, my = -h * 0.98;
     ctx.fillStyle = `rgba(255,230,140,${G.flash})`;
-    ctx.beginPath(); ctx.arc(0, -232 * s, 30 * s * (0.6 + G.flash), 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx, my, h * 0.07 * (0.6 + G.flash), 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,230,${G.flash})`;
+    ctx.beginPath(); ctx.arc(mx, my, h * 0.03 * (0.6 + G.flash), 0, 7); ctx.fill();
   }
   ctx.restore();
 }
@@ -589,6 +665,7 @@ function drawFx() {
 
 function drawHud() {
   if (G.phase !== 'duel' && G.phase !== 'result') return;
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
   const pad = 16, top = Math.max(16, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 16) + 44;
   // player health
   const w = Math.min(220, W * 0.5);
@@ -620,6 +697,7 @@ function drawHud() {
     ctx.font = `400 ${Math.min(W * 0.28, 140)}px Rye, serif`; ctx.fillStyle = '#fff3d6'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('ÇEK!', W / 2, H * 0.3); ctx.restore();
   }
+  ctx.restore();
 }
 
 function render() {
